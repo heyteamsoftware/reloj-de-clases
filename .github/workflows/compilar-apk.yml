@@ -1,0 +1,44 @@
+name: Compilar y publicar APK
+
+on:
+  push:
+    paths: ['proyecto.txz', '.github/workflows/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Compilar
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          tar xJf proyecto.txz
+          echo "$KEYSTORE_B64" | base64 -d > RelojClasesAndroid/app/reloj-clases.jks
+          cd RelojClasesAndroid
+          gradle assembleRelease --no-daemon
+
+      - name: Publicar la version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CODE=$(grep -oP 'versionCode \K[0-9]+' RelojClasesAndroid/app/build.gradle)
+          NAME=$(grep -oP "versionName '\K[^']+" RelojClasesAndroid/app/build.gradle)
+          cp RelojClasesAndroid/app/build/outputs/apk/release/*.apk RelojClases.apk
+          sha256sum RelojClases.apk
+          gh release delete "v$CODE" --yes --cleanup-tag || true
+          gh release create "v$CODE" RelojClases.apk --title "Versión $NAME" --notes "Reloj de clases $NAME"
